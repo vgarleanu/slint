@@ -13,6 +13,7 @@ name = "todo"
 
 [dependencies]
 sixtyfps = { path = "../../../api/sixtyfps-rs" }
+pin-weak = "1"
 
 [build-dependencies]
 sixtyfps-build = { path = "../../../api/sixtyfps-rs/sixtyfps-build" }

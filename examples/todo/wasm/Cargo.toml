@@ -13,6 +13,7 @@ path = "../rust/main.rs"
 
 [dependencies]
 sixtyfps = { path = "../../../api/sixtyfps-rs" }
+pin-weak = "1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2" }
