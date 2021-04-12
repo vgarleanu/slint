@@ -658,6 +658,7 @@ fn parse_export_specifier(p: &mut impl Parser) -> bool {
 #[cfg_attr(test, parser_test)]
 /// ```test,ImportSpecifier
 /// import { Type1, Type2 } from "somewhere";
+/// import defaultExport from "somewhere";
 /// ```
 fn parse_import_specifier(p: &mut impl Parser) -> bool {
     debug_assert_eq!(p.peek().as_str(), "import");
@@ -691,30 +692,46 @@ fn parse_import_specifier(p: &mut impl Parser) -> bool {
 /// { Type2, Type3 }
 /// { }
 /// { Type as Alias1, Type as AnotherAlias }
+/// defaultExport
+/// defaultExport, { SomeType }
+/// { SomeType }, nameForDefaultExport
 /// ```
 fn parse_import_identifier_list(p: &mut impl Parser) -> bool {
     let mut p = p.start_node(SyntaxKind::ImportIdentifierList);
-    if !p.expect(SyntaxKind::LBrace) {
-        return false;
-    }
-    if p.test(SyntaxKind::RBrace) {
-        return true;
-    }
     loop {
-        parse_import_identifier(&mut *p);
-        match p.nth(0).kind() {
-            SyntaxKind::RBrace => {
-                p.consume();
-                return true;
+        let checkpoint = p.checkpoint();
+        if p.test(SyntaxKind::Identifier) {
+            let _ = p.start_node_at(checkpoint.clone(), SyntaxKind::DefaultImport);
+
+            if p.nth(0).kind() == SyntaxKind::Eof {
+                return false;
             }
-            SyntaxKind::Eof => return false,
-            SyntaxKind::Comma => {
-                p.consume();
+        } else if p.test(SyntaxKind::LBrace) {
+            if p.test(SyntaxKind::RBrace) {
+                continue;
+            } else {
+                loop {
+                    parse_import_identifier(&mut *p);
+
+                    match p.nth(0).kind() {
+                        SyntaxKind::RBrace => {
+                            p.consume();
+                            break;
+                        }
+                        SyntaxKind::Eof => return false,
+                        SyntaxKind::Comma => {
+                            p.consume();
+                        }
+                        _ => {
+                            p.consume();
+                            p.error("Expected comma")
+                        }
+                    }
+                }
             }
-            _ => {
-                p.consume();
-                p.error("Expected comma")
-            }
+        }
+        if !p.test(SyntaxKind::Comma) {
+            break true;
         }
     }
 }

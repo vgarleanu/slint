@@ -52,16 +52,25 @@ impl ImportedName {
     pub fn extract_imported_names(
         import: &syntax_nodes::ImportSpecifier,
     ) -> impl Iterator<Item = ImportedName> {
-        import.ImportIdentifierList().ImportIdentifier().map(|importident| {
-            let external_name = importident.ExternalName().text().to_string().trim().to_string();
+        import
+            .ImportIdentifierList()
+            .ImportIdentifier()
+            .map(|importident| {
+                let external_name =
+                    importident.ExternalName().text().to_string().trim().to_string();
 
-            let internal_name = match importident.InternalName() {
-                Some(name_ident) => name_ident.text().to_string().trim().to_string(),
-                None => external_name.clone(),
-            };
+                let internal_name = match importident.InternalName() {
+                    Some(name_ident) => name_ident.text().to_string().trim().to_string(),
+                    None => external_name.clone(),
+                };
 
-            ImportedName { internal_name, external_name }
-        })
+                ImportedName { internal_name, external_name }
+            })
+            .chain(import.ImportIdentifierList().DefaultImport().map(|defaultimport| {
+                let external_name = "default".to_string();
+                let internal_name = defaultimport.text().to_string().trim().to_string();
+                ImportedName { internal_name, external_name }
+            }))
     }
 }
 

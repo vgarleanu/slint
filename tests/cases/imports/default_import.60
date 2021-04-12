@@ -7,18 +7,9 @@
     This file is also available under commercial licensing terms.
     Please contact info@sixtyfps.io for more information.
 LICENSE END */
-
-TestButtonImpl := Rectangle {
-    property<string> button_text;
-    Text {
-        x: 10phx;
-        y: 10phx;
-        text: root.button_text;
-    }
+//include_path: ../../helper_components
+// Known as `ColorButton` in test_button.60 but marked as default export
+import MyButton from "test_button.60";
+TestCase := Rectangle {
+    MyButton {}
 }
-export { TestButtonImpl as TestButton }
-
-export ColorButton := TestButtonImpl {
-    property<color> button_color;
-}
-export { ColorButton as default }
