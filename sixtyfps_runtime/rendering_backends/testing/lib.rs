@@ -112,6 +112,14 @@ impl PlatformWindow for TestingWindow {
 
     fn hide(self: Rc<Self>) {}
 
+    fn set_frame_position(&self, _position: euclid::default::Point2D<i32>) {
+        unimplemented!("setting the frame position")
+    }
+
+    fn frame_position(&self) -> euclid::default::Point2D<i32> {
+        unimplemented!("getting the frame position")
+    }
+
     fn request_redraw(&self) {}
 
     fn scale_factor(&self) -> f32 {

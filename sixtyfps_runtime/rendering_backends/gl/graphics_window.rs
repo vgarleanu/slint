@@ -91,7 +91,9 @@ impl GraphicsWindow {
         Rc::new(Self {
             self_weak: window_weak.clone(),
             window_factory: Box::new(graphics_backend_factory),
-            map_state: RefCell::new(GraphicsWindowBackendState::Unmapped),
+            map_state: RefCell::new(GraphicsWindowBackendState::Unmapped {
+                requested_frame_position: None,
+            }),
             properties: Box::pin(WindowProperties::default()),
             keyboard_modifiers: Default::default(),
             mouse_input_state: Default::default(),
@@ -108,7 +110,7 @@ impl GraphicsWindow {
         constraints_vertical: corelib::layout::LayoutInfo,
     ) {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => {}
+            GraphicsWindowBackendState::Unmapped { .. } => {}
             GraphicsWindowBackendState::Mapped(window) => {
                 if (constraints_horizontal, constraints_vertical) != window.constraints.get() {
                     let min_width = constraints_horizontal.min.min(constraints_horizontal.max);
@@ -162,7 +164,7 @@ impl GraphicsWindow {
 
     fn with_current_context<T>(&self, cb: impl FnOnce() -> T) -> T {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => cb(),
+            GraphicsWindowBackendState::Unmapped { .. } => cb(),
             GraphicsWindowBackendState::Mapped(window) => {
                 window.backend.borrow().with_current_context(cb)
             }
@@ -177,9 +179,12 @@ impl GraphicsWindow {
     ///   for the initial size of the window. Then bindings are installed on these properties to keep them up-to-date
     ///   with the size as it may be changed by the user or the windowing system in general.
     fn map_window(self: Rc<Self>) {
-        if matches!(&*self.map_state.borrow(), GraphicsWindowBackendState::Mapped(..)) {
-            return;
-        }
+        let requested_frame_position = match &*self.map_state.borrow() {
+            GraphicsWindowBackendState::Unmapped { requested_frame_position } => {
+                requested_frame_position.clone()
+            }
+            GraphicsWindowBackendState::Mapped(_) => return,
+        };
 
         let component = self.component();
         let component = ComponentRc::borrow_pin(&component);
@@ -218,6 +223,14 @@ impl GraphicsWindow {
         let backend = self.window_factory.as_ref()(window_builder);
 
         let platform_window = backend.window();
+
+        // Can't feed the requested frame position into the window builder, because that only takes an inner
+        // position, so delay setting this until the window is created.
+        if let Some(position) = requested_frame_position {
+            platform_window
+                .set_outer_position(winit::dpi::LogicalPosition::new(position.x, position.y));
+        }
+
         self.properties.as_ref().scale_factor.set(platform_window.scale_factor() as _);
         let id = platform_window.id();
         drop(platform_window);
@@ -238,7 +251,8 @@ impl GraphicsWindow {
             self.texture_cache.borrow_mut().remove_textures();
         });
 
-        self.map_state.replace(GraphicsWindowBackendState::Unmapped);
+        self.map_state
+            .replace(GraphicsWindowBackendState::Unmapped { requested_frame_position: None });
         /* FIXME:
         if let Some(existing_blinker) = self.cursor_blinker.borrow().upgrade() {
             existing_blinker.stop();
@@ -374,7 +388,7 @@ impl GraphicsWindow {
     /// reload the scale_factor from the window manager and sets the internal scale_factor property accordingly
     pub fn refresh_window_scale_factor(&self) {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => {}
+            GraphicsWindowBackendState::Unmapped { .. } => {}
             GraphicsWindowBackendState::Mapped(window) => {
                 let sf = window.backend.borrow().window().scale_factor();
                 self.set_scale_factor(sf as f32)
@@ -402,7 +416,7 @@ impl GraphicsWindow {
 impl PlatformWindow for GraphicsWindow {
     fn request_redraw(&self) {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => {}
+            GraphicsWindowBackendState::Unmapped { .. } => {}
             GraphicsWindowBackendState::Mapped(window) => {
                 window.backend.borrow().window().request_redraw()
             }
@@ -419,7 +433,7 @@ impl PlatformWindow for GraphicsWindow {
 
     fn free_graphics_resources<'a>(&self, items: &Slice<'a, Pin<ItemRef<'a>>>) {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => {}
+            GraphicsWindowBackendState::Unmapped { .. } => {}
             GraphicsWindowBackendState::Mapped(_) => {
                 let mut cache_entries_to_clear = items
                     .iter()
@@ -451,7 +465,7 @@ impl PlatformWindow for GraphicsWindow {
 
     fn request_window_properties_update(&self) {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => {
+            GraphicsWindowBackendState::Unmapped { .. } => {
                 // Nothing to be done if the window isn't visible. When it becomes visible,
                 // corelib::window::Window::show() calls update_window_properties()
             }
@@ -470,7 +484,7 @@ impl PlatformWindow for GraphicsWindow {
 
     fn apply_window_properties(&self, window_item: Pin<&sixtyfps_corelib::items::WindowItem>) {
         match &*self.map_state.borrow() {
-            GraphicsWindowBackendState::Unmapped => {}
+            GraphicsWindowBackendState::Unmapped { .. } => {}
             GraphicsWindowBackendState::Mapped(window) => {
                 let title = window_item.title();
                 let icon = window_item.icon();
@@ -532,6 +546,23 @@ impl PlatformWindow for GraphicsWindow {
         self.unmap_window();
     }
 
+    fn set_frame_position(&self, position: euclid::default::Point2D<i32>) {
+        match &mut *self.map_state.borrow_mut() {
+            GraphicsWindowBackendState::Unmapped { requested_frame_position } => {
+                *requested_frame_position = position.into();
+            }
+            GraphicsWindowBackendState::Mapped(window) => window
+                .backend
+                .borrow()
+                .window()
+                .set_outer_position(winit::dpi::LogicalPosition::new(position.x, position.y)),
+        }
+    }
+
+    fn frame_position(&self) -> euclid::default::Point2D<i32> {
+        todo!()
+    }
+
     fn font_metrics(
         &self,
         item_graphics_cache_data: &corelib::item_rendering::CachedRenderingData,
@@ -571,14 +602,14 @@ impl Drop for MappedWindow {
 }
 
 enum GraphicsWindowBackendState {
-    Unmapped,
+    Unmapped { requested_frame_position: Option<euclid::default::Point2D<i32>> },
     Mapped(MappedWindow),
 }
 
 impl GraphicsWindowBackendState {
     fn as_mapped(&self) -> &MappedWindow {
         match self {
-            GraphicsWindowBackendState::Unmapped => panic!(
+            GraphicsWindowBackendState::Unmapped { .. } => panic!(
                 "internal error: tried to access window functions that require a mapped window"
             ),
             GraphicsWindowBackendState::Mapped(mw) => &mw,

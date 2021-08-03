@@ -1163,6 +1163,26 @@ impl PlatformWindow for QtWindow {
         }};
     }
 
+    fn set_frame_position(&self, position: euclid::default::Point2D<i32>) {
+        let widget_ptr = self.widget_ptr();
+        let pos = qttypes::QPoint { x: position.x, y: position.y };
+        cpp! {unsafe [widget_ptr as "QWidget*", pos as "QPoint"] {
+            if (auto *handle = widget_ptr->windowHandle())
+                handle->setFramePosition(pos);
+        }};
+    }
+
+    fn frame_position(&self) -> euclid::default::Point2D<i32> {
+        let widget_ptr = self.widget_ptr();
+        let pos = cpp! {unsafe [widget_ptr as "QWidget*"] -> qttypes::QPoint as "QPoint" {
+            if (auto *handle = widget_ptr->windowHandle())
+                return handle->framePosition();
+            else
+                return QPoint();
+        }};
+        [pos.x, pos.y].into()
+    }
+
     fn request_redraw(&self) {
         let widget_ptr = self.widget_ptr();
         cpp! {unsafe [widget_ptr as "QWidget*"] {

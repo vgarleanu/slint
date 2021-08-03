@@ -497,6 +497,32 @@ declare_types! {
             window.hide();
             Ok(JsUndefined::new().as_value(&mut cx))
         }
+
+        method framePosition(mut cx) {
+            let this = cx.this();
+            let window = cx.borrow(&this, |x| x.0.as_ref().map(|c| c.clone()));
+            let window = window.ok_or(()).or_else(|()| cx.throw_error("Invalid type"))?;
+            let pos = window.frame_position();
+            let js_point = JsObject::new(&mut cx);
+            let x = JsNumber::new(&mut cx, pos.x).as_value(&mut cx);
+            js_point.set(&mut cx, "x", x)?;
+            let y = JsNumber::new(&mut cx, pos.y).as_value(&mut cx);
+            js_point.set(&mut cx, "y", y)?;
+            Ok(js_point.as_value(&mut cx))
+        }
+
+        method setFramePosition(mut cx) {
+            let this = cx.this();
+            let window = cx.borrow(&this, |x| x.0.as_ref().map(|c| c.clone()));
+            let window = window.ok_or(()).or_else(|()| cx.throw_error("Invalid type"))?;
+
+            let js_point = cx.argument::<JsObject>(0)?;
+            let x = js_point.get(&mut cx, "x")?.downcast_or_throw::<JsNumber, _>(&mut cx)?.value() as i32;
+            let y = js_point.get(&mut cx, "y")?.downcast_or_throw::<JsNumber, _>(&mut cx)?.value() as i32;
+            window.set_frame_position([x, y].into());
+
+            Ok(JsUndefined::new().as_value(&mut cx))
+        }
     }
 }
 

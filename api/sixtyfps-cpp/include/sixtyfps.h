@@ -103,6 +103,20 @@ public:
     void show() const { sixtyfps_windowrc_show(&inner); }
     void hide() const { sixtyfps_windowrc_hide(&inner); }
 
+    void set_frame_position(int x, int y)
+    {
+        cbindgen_private::sixtyfps_windowrc_set_frame_position(&inner, x, y);
+    }
+
+    int frame_position_x() const
+    {
+        return cbindgen_private::sixtyfps_windowrc_frame_position_x(&inner);
+    }
+    int frame_position_y() const
+    {
+        return cbindgen_private::sixtyfps_windowrc_frame_position_y(&inner);
+    }
+
     float scale_factor() const { return sixtyfps_windowrc_get_scale_factor(&inner); }
     void set_scale_factor(float value) const { sixtyfps_windowrc_set_scale_factor(&inner, value); }
 
@@ -293,6 +307,14 @@ public:
     void show() { inner.show(); }
     /// De-registers the window from the windowing system, therefore hiding it.
     void hide() { inner.hide(); }
+
+    /// Sets the position of the window's frame on the screen, in logical coordinates.
+    void set_frame_position(int x, int y) { inner.set_frame_position(x, y); }
+
+    /// Returns the logical x coordinate of the position of the window's frame on the screen.
+    int frame_position_x() const { return inner.frame_position_x(); }
+    /// Returns the logical y coordinate of the position of the window's frame on the screen.
+    int frame_position_y() const { return inner.frame_position_y(); }
 
     /// \private
     private_api::WindowRc &window_handle() { return inner; }

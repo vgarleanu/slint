@@ -48,8 +48,8 @@ class Component {
         this.window.hide()
     }
 
-    get window(): Window {
-        return this.comp.window();
+    get window(): SixtyFPSWindow {
+        return new SixtyFPSWindow(this.comp.window());
     }
 
     send_mouse_click(x: number, y: number) {
@@ -61,9 +61,32 @@ class Component {
     }
 }
 
-interface Window {
-    show(): void;
-    hide(): void;
+interface Point {
+    x: Number,
+    y: Number,
+}
+
+class SixtyFPSWindow {
+    protected impl: any;
+
+    constructor(impl: any) {
+        this.impl = impl;
+    }
+
+    show(): void {
+        this.impl.show();
+    }
+    hide(): void {
+        this.impl.hide();
+    }
+
+    get framePosition(): Point {
+        return this.impl.framePosition();
+    }
+
+    set framePosition(pos: Point) {
+        this.impl.setFramePosition(pos);
+    }
 }
 
 /**

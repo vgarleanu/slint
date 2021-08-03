@@ -32,6 +32,10 @@ pub trait PlatformWindow {
     fn show(self: Rc<Self>);
     /// De-registers the window from the windowing system.
     fn hide(self: Rc<Self>);
+    /// Sets the frame position of the window on the screen.
+    fn set_frame_position(&self, position: euclid::default::Point2D<i32>);
+    /// Returns the position of the frame of the window on the screen.
+    fn frame_position(&self) -> euclid::default::Point2D<i32>;
     /// Issue a request to the windowing system to re-render the contents of the window. This is typically an asynchronous
     /// request.
     fn request_redraw(&self);
@@ -352,6 +356,17 @@ pub mod api {
         pub fn hide(&self) {
             self.0.hide();
         }
+
+        /// Sets the position of the window's frame on the screen, in logical coordinates.
+        pub fn set_frame_position(&self, x: i32, y: i32) {
+            self.0.set_frame_position([x, y].into());
+        }
+
+        /// Returns the position of the window's frame on the screen as a tuple
+        /// of the logical x and y coordinate.
+        pub fn position(&self) -> (i32, i32) {
+            self.0.frame_position().into()
+        }
     }
 }
 
@@ -406,6 +421,35 @@ pub mod ffi {
     pub unsafe extern "C" fn sixtyfps_windowrc_hide(handle: *const WindowRcOpaque) {
         let window = &*(handle as *const WindowRc);
         window.hide();
+    }
+
+    /// Sets the position of the window's frame on the screen, in logical coordinates.
+    #[no_mangle]
+    pub unsafe extern "C" fn sixtyfps_windowrc_set_frame_position(
+        handle: *const WindowRcOpaque,
+        x: i32,
+        y: i32,
+    ) {
+        let window = &*(handle as *const WindowRc);
+        window.set_frame_position([x, y].into());
+    }
+
+    /// Returns the logical x coordinate of the position of the window's frame on the screen.
+    #[no_mangle]
+    pub unsafe extern "C" fn sixtyfps_windowrc_frame_position_x(
+        handle: *const WindowRcOpaque,
+    ) -> i32 {
+        let window = &*(handle as *const WindowRc);
+        window.frame_position().x
+    }
+
+    /// Returns the logical y coordinate of the position of the window's frame on the screen.
+    #[no_mangle]
+    pub unsafe extern "C" fn sixtyfps_windowrc_frame_position_y(
+        handle: *const WindowRcOpaque,
+    ) -> i32 {
+        let window = &*(handle as *const WindowRc);
+        window.frame_position().y
     }
 
     /// Returns the window scale factor.
