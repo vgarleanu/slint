@@ -50,12 +50,15 @@ pub fn main() {
     console_error_panic_hook::set_once();
 
     let main_window = MainWindow::new();
-    main_window.set_ink_levels(sixtyfps::VecModel::from_slice(&[
-        InkLevel { color: sixtyfps::Color::from_rgb_u8(0, 255, 255), level: 0.40 },
-        InkLevel { color: sixtyfps::Color::from_rgb_u8(255, 0, 255), level: 0.20 },
-        InkLevel { color: sixtyfps::Color::from_rgb_u8(255, 255, 0), level: 0.50 },
-        InkLevel { color: sixtyfps::Color::from_rgb_u8(0, 0, 0), level: 0.80 },
-    ]));
+    main_window.set_ink_levels(
+        vec![
+            InkLevel { color: sixtyfps::Color::from_rgb_u8(0, 255, 255), level: 0.40 },
+            InkLevel { color: sixtyfps::Color::from_rgb_u8(255, 0, 255), level: 0.20 },
+            InkLevel { color: sixtyfps::Color::from_rgb_u8(255, 255, 0), level: 0.50 },
+            InkLevel { color: sixtyfps::Color::from_rgb_u8(0, 0, 0), level: 0.80 },
+        ]
+        .into(),
+    );
 
     let default_queue: Vec<PrinterQueueItem> =
         main_window.global::<PrinterQueue>().get_printer_queue().iter().collect();

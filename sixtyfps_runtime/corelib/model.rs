@@ -357,6 +357,12 @@ impl<T> From<Rc<dyn Model<Data = T>>> for ModelHandle<T> {
     }
 }
 
+impl<T: Clone + 'static> From<Vec<T>> for ModelHandle<T> {
+    fn from(data: Vec<T>) -> Self {
+        Self(Some(Rc::new(VecModel::from(data)) as Rc<dyn Model<Data = T>>))
+    }
+}
+
 impl<T> ModelHandle<T> {
     /// Create a new handle wrapping the given model
     pub fn new(model: Rc<dyn Model<Data = T>>) -> Self {

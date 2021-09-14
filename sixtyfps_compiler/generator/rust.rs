@@ -1506,9 +1506,7 @@ fn compile_expression(expr: &Expression, component: &Rc<Component>) -> TokenStre
         Expression::Array { values, element_ty } => {
             let rust_element_ty = rust_type(element_ty).unwrap();
             let val = values.iter().map(|e| compile_expression(e, component));
-            quote!(sixtyfps::re_exports::ModelHandle::new(
-                std::rc::Rc::new(sixtyfps::re_exports::VecModel::<#rust_element_ty>::from(vec![#(#val as _),*]))
-            ))
+            quote!(sixtyfps::re_exports::ModelHandle::<#rust_element_ty>::from(vec![#(#val as _),*]))
         }
         Expression::Struct { ty, values } => {
             if let Type::Struct { fields, name, .. } = ty {
