@@ -74,18 +74,36 @@ mod cpp_ast {
         })
     }
 
-    ///A full C++ file
-    #[derive(Default, Debug)]
-    pub struct File {
-        pub includes: Vec<String>,
-        pub declarations: Vec<Declaration>,
-        pub definitions: Vec<Declaration>,
+    #[derive(Debug)]
+    pub enum NamespaceName {
+        Global,
+        // Anonymous,
+        Named(String),
     }
 
-    impl Display for File {
-        fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-            for i in &self.includes {
-                writeln!(f, "#include {}", i)?;
+    impl Default for NamespaceName {
+        fn default() -> Self {
+            Self::Global
+        }
+    }
+
+    #[derive(Default, Debug)]
+    pub struct Namespace {
+        pub name: NamespaceName,
+        pub declarations: Vec<Declaration>,
+        pub definitions: Vec<Declaration>,
+        pub namespaces: Vec<Namespace>,
+    }
+
+    impl Display for Namespace {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match &self.name {
+                NamespaceName::Global => {} // Nothing to do
+                // NamespaceName::Anonymous => write!(f, "namespace {{")?,
+                NamespaceName::Named(name) => write!(f, "namespace {} {{", name)?,
+            }
+            for n in &self.namespaces {
+                write!(f, "\n{}", n)?;
             }
             for d in &self.declarations {
                 write!(f, "\n{}", d)?;
@@ -93,7 +111,30 @@ mod cpp_ast {
             for d in &self.definitions {
                 write!(f, "\n{}", d)?;
             }
+            match &self.name {
+                NamespaceName::Global => {} // Nothing to do
+                // NamespaceName::Anonymous => write!(f, "}} // end anonymous namespace")?,
+                NamespaceName::Named(name) => write!(f, "}} // end namespace {}", name)?,
+            }
             Ok(())
+        }
+    }
+
+    ///A full C++ file
+    #[derive(Default, Debug, derive_more::Deref, derive_more::DerefMut)]
+    pub struct File {
+        pub includes: Vec<String>,
+        #[deref]
+        #[deref_mut]
+        pub global_namespace: Namespace,
+    }
+
+    impl Display for File {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+            for i in &self.includes {
+                writeln!(f, "#include {}", i)?;
+            }
+            self.global_namespace.fmt(f)
         }
     }
 
@@ -479,8 +520,15 @@ pub fn generate(doc: &Document) -> impl std::fmt::Display {
     file.includes.push("<cmath>".into()); // TODO: ideally only include this if needed (by floor/ceil/round)
     file.includes.push("<sixtyfps.h>".into());
 
-    file.declarations.extend(doc.root_component.embedded_file_resources.borrow().iter().map(
-        |(path, er)| {
+    const PRIVATE_NAMESPACE_NAME: &str = "sixtyfps_compiler_generated";
+
+    let mut private_namespace = Namespace {
+        name: NamespaceName::Named(PRIVATE_NAMESPACE_NAME.to_string()),
+        ..Default::default()
+    };
+
+    private_namespace.declarations.extend(
+        doc.root_component.embedded_file_resources.borrow().iter().map(|(path, er)| {
             match &er.kind {
                 crate::embedded_resources::EmbeddedResourcesKind::RawData => {
                     let file = crate::fileaccess::load_file(std::path::Path::new(path)).unwrap(); // embedding pass ensured that the file exists
@@ -509,19 +557,19 @@ pub fn generate(doc: &Document) -> impl std::fmt::Display {
                 }
                 crate::embedded_resources::EmbeddedResourcesKind::TextureData(_) => todo!(),
             }
-        },
-    ));
+        }),
+    );
 
     for ty in doc.root_component.used_types.borrow().structs.iter() {
         if let Type::Struct { fields, name: Some(name), node: Some(_) } = ty {
-            generate_struct(&mut file, name, fields);
+            generate_struct(&mut private_namespace, name, fields);
         }
     }
 
     let llr = llr::lower_to_item_tree::lower_to_item_tree(&doc.root_component);
 
     // Forward-declare the root so that sub-components can access singletons, the window, etc.
-    file.declarations.push(Declaration::Struct(Struct {
+    private_namespace.declarations.push(Declaration::Struct(Struct {
         name: ident(&llr.item_tree.root.name),
         ..Default::default()
     }));
@@ -529,19 +577,58 @@ pub fn generate(doc: &Document) -> impl std::fmt::Display {
     for sub_compo in &llr.sub_components {
         let sub_compo_id = ident(&sub_compo.name);
         let mut sub_compo_struct = Struct { name: sub_compo_id.clone(), ..Default::default() };
-        generate_sub_component(&mut sub_compo_struct, sub_compo, &llr, None, &mut file);
-        file.definitions.extend(sub_compo_struct.extract_definitions().collect::<Vec<_>>());
-        file.declarations.push(Declaration::Struct(sub_compo_struct));
+        generate_sub_component(
+            &mut sub_compo_struct,
+            sub_compo,
+            &llr,
+            None,
+            &mut private_namespace,
+        );
+        private_namespace
+            .definitions
+            .extend(sub_compo_struct.extract_definitions().collect::<Vec<_>>());
+        private_namespace.declarations.push(Declaration::Struct(sub_compo_struct));
     }
 
     for glob in llr.globals.iter().filter(|glob| !glob.is_builtin) {
-        generate_global(&mut file, glob, &llr);
+        generate_global(&mut private_namespace, glob, &llr);
+    }
+
+    let public_class = generate_public_component(&mut private_namespace, &llr);
+
+    file.namespaces.push(private_namespace);
+
+    // Make public types visible in the global namespace
+
+    for ty in doc.root_component.used_types.borrow().structs.iter() {
+        if let Type::Struct { name: Some(name), node: Some(_), .. } = ty {
+            file.definitions.push(Declaration::TypeAlias(TypeAlias {
+                old_name: format!("{}::{}", PRIVATE_NAMESPACE_NAME, name),
+                new_name: name.clone(),
+            }));
+        }
+    }
+
+    for glob in llr.globals.iter().filter(|glob| !glob.is_builtin) {
+        if glob.exported {
+            let global_name = ident(&glob.name);
+            file.definitions.push(Declaration::TypeAlias(TypeAlias {
+                old_name: format!("{}::{}", PRIVATE_NAMESPACE_NAME, global_name),
+                new_name: global_name,
+            }));
+        }
         file.definitions.extend(glob.aliases.iter().map(|name| {
-            Declaration::TypeAlias(TypeAlias { old_name: ident(&glob.name), new_name: ident(name) })
+            Declaration::TypeAlias(TypeAlias {
+                old_name: format!("{}::{}", PRIVATE_NAMESPACE_NAME, ident(&glob.name)),
+                new_name: ident(name),
+            })
         }))
     }
 
-    generate_public_component(&mut file, &llr);
+    file.definitions.push(Declaration::TypeAlias(TypeAlias {
+        old_name: format!("{}::{}", PRIVATE_NAMESPACE_NAME, public_class),
+        new_name: public_class,
+    }));
 
     file.definitions.push(Declaration::Var(Var{
         ty: format!(
@@ -557,7 +644,7 @@ pub fn generate(doc: &Document) -> impl std::fmt::Display {
     file
 }
 
-fn generate_struct(file: &mut File, name: &str, fields: &BTreeMap<String, Type>) {
+fn generate_struct(namespace: &mut Namespace, name: &str, fields: &BTreeMap<String, Type>) {
     let mut operator_eq = String::new();
     let mut members = fields
         .iter()
@@ -597,7 +684,7 @@ fn generate_struct(file: &mut File, name: &str, fields: &BTreeMap<String, Type>)
             ..Function::default()
         }),
     ));
-    file.declarations.push(Declaration::Struct(Struct {
+    namespace.declarations.push(Declaration::Struct(Struct {
         name: name.into(),
         members,
         ..Default::default()
@@ -607,7 +694,11 @@ fn generate_struct(file: &mut File, name: &str, fields: &BTreeMap<String, Type>)
 /// Generate the component in `file`.
 ///
 /// `sub_components`, if Some, will be filled with all the sub component which needs to be added as friends
-fn generate_public_component(file: &mut File, component: &llr::PublicComponent) {
+/// Returns the class name of the generated component
+fn generate_public_component(
+    namespace: &mut Namespace,
+    component: &llr::PublicComponent,
+) -> String {
     let root_component = &component.item_tree.root;
     let component_id = ident(&root_component.name);
     let mut component_struct = Struct { name: component_id.clone(), ..Default::default() };
@@ -707,7 +798,7 @@ fn generate_public_component(file: &mut File, component: &llr::PublicComponent) 
         &component,
         None,
         component_id.clone(),
-        file,
+        namespace,
     );
 
     for glob in &component.globals {
@@ -754,8 +845,10 @@ fn generate_public_component(file: &mut File, component: &llr::PublicComponent) 
         ));
     }
 
-    file.definitions.extend(component_struct.extract_definitions().collect::<Vec<_>>());
-    file.declarations.push(Declaration::Struct(component_struct));
+    namespace.definitions.extend(component_struct.extract_definitions().collect::<Vec<_>>());
+    namespace.declarations.push(Declaration::Struct(component_struct));
+
+    component_id
 }
 
 fn generate_item_tree(
@@ -764,14 +857,14 @@ fn generate_item_tree(
     root: &llr::PublicComponent,
     parent_ctx: Option<ParentCtx>,
     item_tree_class_name: String,
-    file: &mut File,
+    namespace: &mut Namespace,
 ) {
     target_struct.friends.push(format!(
         "vtable::VRc<sixtyfps::private_api::ComponentVTable, {}>",
         item_tree_class_name
     ));
 
-    generate_sub_component(target_struct, &sub_tree.root, root, parent_ctx.clone(), file);
+    generate_sub_component(target_struct, &sub_tree.root, root, parent_ctx.clone(), namespace);
 
     let root_access = if parent_ctx.is_some() { "parent->root" } else { "self" };
 
@@ -945,7 +1038,7 @@ fn generate_item_tree(
         }),
     ));
 
-    file.definitions.push(Declaration::Var(Var {
+    namespace.definitions.push(Declaration::Var(Var {
         ty: "const sixtyfps::private_api::ComponentVTable".to_owned(),
         name: format!("{}::static_vtable", item_tree_class_name),
         init: Some(format!(
@@ -1026,7 +1119,7 @@ fn generate_sub_component(
     component: &llr::SubComponent,
     root: &llr::PublicComponent,
     parent_ctx: Option<ParentCtx>,
-    file: &mut File,
+    namespace: &mut Namespace,
 ) {
     let root_ptr_type = format!("const {} *", ident(&root.item_tree.root.name));
 
@@ -1111,10 +1204,10 @@ fn generate_sub_component(
             &root,
             Some(ParentCtx::new(&ctx, None)),
             component_id,
-            file,
+            namespace,
         );
-        file.definitions.extend(popup_struct.extract_definitions().collect::<Vec<_>>());
-        file.declarations.push(Declaration::Struct(popup_struct));
+        namespace.definitions.extend(popup_struct.extract_definitions().collect::<Vec<_>>());
+        namespace.declarations.push(Declaration::Struct(popup_struct));
     });
 
     for property in &component.properties {
@@ -1231,7 +1324,7 @@ fn generate_sub_component(
             root,
             ParentCtx::new(&ctx, Some(idx)),
             &data_type,
-            file,
+            namespace,
         );
 
         let repeater_id = format!("repeater_{}", idx);
@@ -1343,7 +1436,7 @@ fn generate_repeated_component(
     root: &llr::PublicComponent,
     parent_ctx: ParentCtx,
     model_data_type: &Type,
-    file: &mut File,
+    namespace: &mut Namespace,
 ) {
     let repeater_id = ident(&repeated.sub_tree.root.name);
     let mut repeater_struct = Struct { name: repeater_id.clone(), ..Default::default() };
@@ -1353,7 +1446,7 @@ fn generate_repeated_component(
         root,
         Some(parent_ctx.clone()),
         repeater_id.clone(),
-        file,
+        namespace,
     );
 
     let ctx = EvaluationContext {
@@ -1429,11 +1522,15 @@ fn generate_repeated_component(
         ));
     }
 
-    file.definitions.extend(repeater_struct.extract_definitions().collect::<Vec<_>>());
-    file.declarations.push(Declaration::Struct(repeater_struct));
+    namespace.definitions.extend(repeater_struct.extract_definitions().collect::<Vec<_>>());
+    namespace.declarations.push(Declaration::Struct(repeater_struct));
 }
 
-fn generate_global(file: &mut File, global: &llr::GlobalComponent, root: &llr::PublicComponent) {
+fn generate_global(
+    namespace: &mut Namespace,
+    global: &llr::GlobalComponent,
+    root: &llr::PublicComponent,
+) {
     let mut global_struct = Struct { name: ident(&global.name), ..Default::default() };
 
     for property in &global.properties {
@@ -1493,8 +1590,8 @@ fn generate_global(file: &mut File, global: &llr::GlobalComponent, root: &llr::P
     let declarations = generate_public_api_for_properties(&global.public_properties, &ctx);
     global_struct.members.extend(declarations.into_iter().map(|decl| (Access::Public, decl)));
 
-    file.definitions.extend(global_struct.extract_definitions().collect::<Vec<_>>());
-    file.declarations.push(Declaration::Struct(global_struct));
+    namespace.definitions.extend(global_struct.extract_definitions().collect::<Vec<_>>());
+    namespace.declarations.push(Declaration::Struct(global_struct));
 }
 
 fn generate_public_api_for_properties(
