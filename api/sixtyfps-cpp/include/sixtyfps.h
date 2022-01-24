@@ -18,6 +18,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <span>
+#include <concepts>
 
 namespace sixtyfps::cbindgen_private {
 // Workaround https://github.com/eqrion/cbindgen/issues/43
@@ -336,7 +337,7 @@ struct Timer
     ///
     /// This is a convenience function and equivalent to calling
     /// `start(sixtyfps::TimerMode::Repeated, interval, callback);` on a default constructed Timer.
-    template<typename F>
+    template<std::invocable F>
     Timer(std::chrono::milliseconds interval, F callback)
         : id(cbindgen_private::sixtyfps_timer_start(
                 -1, TimerMode::Repeated, interval.count(),
@@ -351,7 +352,7 @@ struct Timer
     /// Starts the timer with the given \a mode and \a interval, in order for the \a callback to
     /// called when the timer fires. If the timer has been started previously and not fired yet,
     /// then it will be restarted.
-    template<typename F>
+    template<std::invocable F>
     void start(TimerMode mode, std::chrono::milliseconds interval, F callback)
     {
         id = cbindgen_private::sixtyfps_timer_start(
@@ -371,7 +372,7 @@ struct Timer
     bool running() const { return cbindgen_private::sixtyfps_timer_running(id); }
 
     /// Call the callback after the given duration.
-    template<typename F>
+    template<std::invocable F>
     static void single_shot(std::chrono::milliseconds duration, F callback)
     {
         cbindgen_private::sixtyfps_timer_singleshot(
@@ -876,7 +877,7 @@ inline void quit_event_loop()
 /// ```
 ///
 /// See also blocking_invoke_from_event_loop() for a blocking version of this function
-template<typename Functor>
+template<std::invocable Functor>
 void invoke_from_event_loop(Functor f)
 {
     cbindgen_private::sixtyfps_post_event(
@@ -919,8 +920,7 @@ void invoke_from_event_loop(Functor f)
 ///     ...
 /// }
 /// ```
-template<typename Functor,
-         typename = std::enable_if_t<!std::is_void_v<std::invoke_result_t<Functor>>>>
+template<std::invocable Functor>
 auto blocking_invoke_from_event_loop(Functor f) -> std::invoke_result_t<Functor>
 {
     std::optional<std::invoke_result_t<Functor>> result;
@@ -937,8 +937,8 @@ auto blocking_invoke_from_event_loop(Functor f) -> std::invoke_result_t<Functor>
     return std::move(*result);
 }
 
-template<typename Functor,
-         typename = std::enable_if_t<std::is_void_v<std::invoke_result_t<Functor>>>>
+#if !defined(DOXYGEN)
+template<std::invocable Functor> requires(std::is_void_v<std::invoke_result_t<Functor>>)
 auto blocking_invoke_from_event_loop(Functor f) -> void
 {
     std::mutex mtx;
@@ -953,6 +953,7 @@ auto blocking_invoke_from_event_loop(Functor f) -> void
     std::unique_lock lock(mtx);
     cv.wait(lock, [&] { return ok; });
 }
+#endif
 
 namespace private_api {
 

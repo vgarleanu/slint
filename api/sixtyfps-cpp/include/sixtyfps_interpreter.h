@@ -655,7 +655,7 @@ public:
     ///
     /// Note: Since the ComponentInstance holds the handler, the handler itself should not
     /// capture a strong reference to the instance.
-    template<typename F>
+    template<std::invocable<std::span<const Value>> F>
     bool set_callback(std::string_view name, F callback) const
     {
         using cbindgen_private::ValueOpaque;
@@ -719,7 +719,7 @@ public:
     ///        return SharedString(arg1);
     ///    })
     /// ```
-    template<typename F>
+    template<std::invocable<std::span<const Value>> F>
     bool set_global_callback(std::string_view global, std::string_view name, F callback) const
     {
         using cbindgen_private::ValueOpaque;
