@@ -1510,6 +1510,10 @@ impl PlatformWindow for QtWindow {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+
+    fn raw_window_handle(&self) -> Option<raw_window_handle::RawWindowHandle> {
+        None
+    }
 }
 
 fn get_font(request: FontRequest) -> QFont {

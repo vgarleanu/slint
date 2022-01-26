@@ -87,6 +87,12 @@ pub trait PlatformWindow {
 
     /// Return self as any so the backend can upcast
     fn as_any(&self) -> &dyn core::any::Any;
+
+    /// Returns the raw window handle for the given window, if the backend implements that.
+    #[cfg(feature = "std")]
+    fn raw_window_handle(&self) -> Option<raw_window_handle::RawWindowHandle> {
+        None
+    }
 }
 
 struct WindowPropertiesTracker {
