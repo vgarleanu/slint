@@ -243,6 +243,10 @@ pub enum ImageInner {
         /// The list of textures
         textures: Slice<'static, StaticTexture>,
     },
+    GLTexture {
+        texture: u32,
+        size: IntSize,
+    },
 }
 
 impl Default for ImageInner {
@@ -382,6 +386,10 @@ impl Image {
         Image(ImageInner::EmbeddedImage(SharedImageBuffer::RGBA8Premultiplied(buffer)))
     }
 
+    pub fn from_gl_texture(texture: u32, size: IntSize) -> Self {
+        Image(ImageInner::GLTexture { texture, size })
+    }
+
     /// Returns the size of the Image in pixels.
     pub fn size(&self) -> IntSize {
         match &self.0 {
@@ -394,7 +402,7 @@ impl Image {
             },
             ImageInner::EmbeddedImage(buffer) => buffer.size(),
             ImageInner::StaticTextures{size, ..} => *size,
-
+            ImageInner::GLTexture{size, ..} => *size,
         }
     }
 

@@ -97,6 +97,10 @@ enum ImageData {
     Svg(usvg::Tree),
     #[cfg(target_arch = "wasm32")]
     HTMLImage(HTMLImage),
+    GLTexture {
+        texture: u32,
+        size: IntSize,
+    },
 }
 
 impl std::fmt::Debug for ImageData {
@@ -129,6 +133,7 @@ impl std::fmt::Debug for ImageData {
                     html_image.dom_element.height()
                 )
             }
+            ImageData::GLTexture { .. } => todo!(),
         }
     }
 }
@@ -175,6 +180,9 @@ impl CachedImage {
                 Some(Self(RefCell::new(ImageData::EmbeddedImage(buffer.clone()))))
             }
             ImageInner::StaticTextures { .. } => todo!(),
+            ImageInner::GLTexture { texture, size } => {
+                Some(Self(RefCell::new(ImageData::GLTexture { texture: *texture, size: *size })))
+            }
         }
     }
 
@@ -288,6 +296,25 @@ impl CachedImage {
             *img = Texture { id: image_id, canvas: canvas.clone() }.into()
         }
 
+        if let ImageData::GLTexture { texture, size } = img {
+            let image_flags = image_flags | femtovg::ImageFlags::PREMULTIPLIED;
+            let glow_texture = unsafe { glow::Context::create_texture_from_gl_name(*texture) };
+            let image_id = canvas
+                .borrow_mut()
+                .create_image_from_native_texture(
+                    glow_texture,
+                    femtovg::ImageInfo::new(
+                        image_flags,
+                        size.width as _,
+                        size.height as _,
+                        femtovg::PixelFormat::Rgba8,
+                    ),
+                )
+                .unwrap();
+
+            *img = Texture { id: image_id, canvas: canvas.clone() }.into()
+        }
+
         match &img {
             ImageData::Texture(Texture { id, .. }) => *id,
             _ => unreachable!(),
@@ -369,6 +396,24 @@ impl CachedImage {
                     canvas.borrow_mut().create_image(&html_image.dom_element, image_flags).unwrap();
                 Self::new_on_gpu(canvas, image_id)
             }),
+
+            ImageData::GLTexture { texture, size } => {
+                let glow_texture = unsafe { glow::Context::create_texture_from_gl_name(*texture) };
+                let image_id = canvas
+                    .borrow_mut()
+                    .create_image_from_native_texture(
+                        glow_texture,
+                        femtovg::ImageInfo::new(
+                            image_flags,
+                            size.width as _,
+                            size.height as _,
+                            femtovg::PixelFormat::Rgba8,
+                        ),
+                    )
+                    .unwrap();
+
+                Some(Self::new_on_gpu(canvas, image_id))
+            }
         }
     }
 
@@ -390,6 +435,8 @@ impl CachedImage {
 
             #[cfg(target_arch = "wasm32")]
             ImageData::HTMLImage(html_image) => html_image.size(),
+
+            ImageData::GLTexture { size, .. } => Some(*size),
         }
     }
 
@@ -469,6 +516,7 @@ impl ImageCacheKey {
             }
             ImageInner::EmbeddedImage { .. } => return None,
             ImageInner::StaticTextures { .. } => return None,
+            ImageInner::GLTexture { .. } => return None,
         })
     }
 }
